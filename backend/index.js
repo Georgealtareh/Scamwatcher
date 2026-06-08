@@ -6,12 +6,81 @@ require('dotenv').config();
 const db = require('./db');
 const alerts = require('./services/alerts');
 const scheduler = require('./services/scheduler');
+const auth = require('./services/auth');
 
 const app = express();
 const port = process.env.PORT || 3001;
 
+app.use(cors());
+app.use(express.json());
+
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`, req.body);
+    next();
+});
+
 // Initialize scheduler
 scheduler.init();
+
+// Validation middleware
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
+// Auth Endpoints
+app.post('/api/auth/signup', [
+    body('email').isEmail().normalizeEmail(),
+    body('password').isLength({ min: 6 }),
+    body('fullName').isString().trim().notEmpty(),
+    validate
+], async (req, res) => {
+    const { email, password, fullName } = req.body;
+    try {
+        const result = await auth.signup(email, password, fullName);
+        res.status(201).json(result);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.post('/api/auth/login', [
+    body('email').isEmail().normalizeEmail(),
+    body('password').exists(),
+    validate
+], async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const result = await auth.login(email, password);
+        res.json(result);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.get('/api/auth/me', auth.verifyToken, (req, res) => {
+    try {
+        const user = db.query(`SELECT id, email, full_name as fullName, is_premium FROM users WHERE id = '${req.user.id}'`);
+        if (user.length === 0) return res.status(404).json({ error: 'User not found' });
+        res.json(user[0]);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+app.put('/api/user/premium', auth.verifyToken, (req, res) => {
+    const { isPremium } = req.body;
+    try {
+        const value = isPremium ? 1 : 0;
+        db.query(`UPDATE users SET is_premium = ${value} WHERE id = '${req.user.id}'`);
+        res.json({ message: `Premium status updated to ${isPremium}`, is_premium: value });
+    } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
 
 // Rate limiting
 const limiter = rateLimit({
@@ -22,17 +91,6 @@ const limiter = rateLimit({
 });
 
 app.use(limiter);
-app.use(cors());
-app.use(express.json());
-
-// Validation middleware
-const validate = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-  next();
-};
 
 app.get('/api/scams', (req, res) => {
     try {
