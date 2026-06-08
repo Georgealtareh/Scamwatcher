@@ -87,55 +87,37 @@ def fetch_rss_source(url, source_name, filter_keywords=None):
 def save_to_db(scams):
     if not scams:
         return
-        
-    print(f"Deduplicating {len(scams)} potential scams...")
-    
-    # Fetch all existing URLs at once to avoid multiple team-db calls
-    try:
-        result = subprocess.run(["team-db", "SELECT url FROM scams"], capture_output=True, text=True)
-        if result.returncode == 0:
-            existing_data = json.loads(result.stdout)
-            existing_urls = {row['url'] for row in existing_data}
-        else:
-            print(f"Error fetching existing URLs: {result.stderr}")
-            existing_urls = set()
-    except Exception as e:
-        print(f"Exception fetching existing URLs: {e}")
-        existing_urls = set()
-        
-    new_scams = []
-    for scam in scams:
-        if scam['source_url'] not in existing_urls:
-            new_scams.append(scam)
-            existing_urls.add(scam['source_url']) # Avoid duplicates in the same batch
-            
-    if not new_scams:
-        print("No new scams to save.")
-        return
 
-    print(f"Saving {len(new_scams)} new scams to database...")
-    
-    # Batch insertion
-    batch_size = 20 # Increased batch size
-    for i in range(0, len(new_scams), batch_size):
-        batch = new_scams[i : i + batch_size]
-        values = []
-        for scam in batch:
-            desc = scam['description'].replace("'", "''")[:1000] 
-            title = scam['title'].replace("'", "''")
-            source_url = scam['source_url'].replace("'", "''")
-            source_name = scam['source_name'].replace("'", "''")
-            
-            values.append(f"('{scam['id']}', '{title}', '{desc}', '{source_url}', '{source_name}', '{scam['detected_at']}', '{scam['scam_type']}', '{scam['risk_level']}')")
-        
-        values_str = ", ".join(values)
-        insert_query = f"""
-        INSERT INTO scams (id, title, description, url, source, date_detected, category, risk_level)
-        VALUES {values_str}
-        """
-        subprocess.run(["team-db", insert_query])
-    
-    print(f"Done saving {len(new_scams)} scams.")
+    print(f"Sending {len(scams)} scams to backend API...")
+
+    success_count = 0
+    for scam in scams:
+        payload = {
+            "id": scam['id'],
+            "title": scam['title'],
+            "description": scam['description'],
+            "source": scam['source_name'],
+            "risk_level": scam['risk_level'].lower(),
+            "category": scam['scam_type'],
+            "url": scam['source_url']
+        }
+
+        try:
+            # Note: 0.0.0.0 is the bind address, but from within the same machine,
+            # we can use localhost or the sandbox hostname.
+            # Port 3001 is where the backend is listening.
+            response = requests.post("http://localhost:3001/api/scams", json=payload, timeout=10)
+            if response.status_code == 201:
+                success_count += 1
+            elif response.status_code == 409:
+                # Already exists, ignore
+                pass
+            else:
+                print(f"Failed to save scam {scam['id']}: {response.status_code} - {response.text}")
+        except Exception as e:
+            print(f"Error calling backend API for scam {scam['id']}: {e}")
+
+    print(f"Done. Successfully saved {success_count} new scams via API.")
 
 if __name__ == "__main__":
     all_scams = []

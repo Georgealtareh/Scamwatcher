@@ -4,6 +4,7 @@ const { body, param, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 const db = require('./db');
+const alerts = require('./alerts');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -79,6 +80,10 @@ app.post('/api/scams', [
                     '${db.escape(url)}'
                   )`;
         db.query(sql);
+        // Process alerts asynchronously
+        alerts.processAlerts({ id, title, description, source, risk_level, category, url }).catch(err => {
+            console.error('Error processing alerts:', err);
+        });
         res.status(201).json({ message: 'Scam added' });
     } catch (error) {
         if (error.message.includes('UNIQUE constraint failed')) {
