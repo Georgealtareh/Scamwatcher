@@ -6,10 +6,16 @@ import datetime
 import json
 import subprocess
 import time
+import os
+import signal
+import sys
+import argparse
 
 # Use a realistic browser user agent to avoid bot detection
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 def classify_scam(title, description):
@@ -46,11 +52,11 @@ def clean_html(html):
     return soup.get_text(separator=' ').strip()
 
 def fetch_rss_source(url, source_name, filter_keywords=None):
-    print(f"Fetching {source_name}...")
+    print(f"[{datetime.datetime.now()}] Fetching {source_name}...")
     try:
-        response = requests.get(url, headers=HEADERS, timeout=15)
+        response = requests.get(url, headers=HEADERS, timeout=20)
         if response.status_code != 200:
-            print(f"Failed to fetch {source_name}: {response.status_code}")
+            print(f"Failed to fetch {source_name}: HTTP {response.status_code}")
             return []
         
         feed = feedparser.parse(response.content)
@@ -87,39 +93,57 @@ def fetch_rss_source(url, source_name, filter_keywords=None):
 def save_to_db(scams):
     if not scams:
         return
-
-    print(f"Sending {len(scams)} scams to backend API...")
-
-    success_count = 0
+        
+    print(f"Deduplicating {len(scams)} potential scams...")
+    
+    # Fetch all existing URLs at once to avoid multiple team-db calls
+    try:
+        result = subprocess.run(["team-db", "SELECT url FROM scams"], capture_output=True, text=True)
+        if result.returncode == 0:
+            existing_data = json.loads(result.stdout)
+            existing_urls = {row['url'] for row in existing_data if 'url' in row}
+        else:
+            print(f"Error fetching existing URLs: {result.stderr}")
+            existing_urls = set()
+    except Exception as e:
+        print(f"Exception fetching existing URLs: {e}")
+        existing_urls = set()
+        
+    new_scams = []
     for scam in scams:
-        payload = {
-            "id": scam['id'],
-            "title": scam['title'],
-            "description": scam['description'],
-            "source": scam['source_name'],
-            "risk_level": scam['risk_level'].lower(),
-            "category": scam['scam_type'],
-            "url": scam['source_url']
-        }
+        if scam['source_url'] not in existing_urls:
+            new_scams.append(scam)
+            existing_urls.add(scam['source_url']) # Avoid duplicates in the same batch
+            
+    if not new_scams:
+        print("No new scams to save.")
+        return
 
-        try:
-            # Note: 0.0.0.0 is the bind address, but from within the same machine,
-            # we can use localhost or the sandbox hostname.
-            # Port 3001 is where the backend is listening.
-            response = requests.post("http://localhost:3001/api/scams", json=payload, timeout=10)
-            if response.status_code == 201:
-                success_count += 1
-            elif response.status_code == 409:
-                # Already exists, ignore
-                pass
-            else:
-                print(f"Failed to save scam {scam['id']}: {response.status_code} - {response.text}")
-        except Exception as e:
-            print(f"Error calling backend API for scam {scam['id']}: {e}")
+    print(f"Saving {len(new_scams)} new scams to database...")
+    
+    # Batch insertion
+    batch_size = 20
+    for i in range(0, len(new_scams), batch_size):
+        batch = new_scams[i : i + batch_size]
+        values = []
+        for scam in batch:
+            desc = scam['description'].replace("'", "''")[:1000] 
+            title = scam['title'].replace("'", "''")
+            source_url = scam['source_url'].replace("'", "''")
+            source_name = scam['source_name'].replace("'", "''")
+            
+            values.append(f"('{scam['id']}', '{title}', '{desc}', '{source_url}', '{source_name}', '{scam['detected_at']}', '{scam['scam_type']}', '{scam['risk_level']}')")
+        
+        values_str = ", ".join(values)
+        insert_query = f"""
+        INSERT INTO scams (id, title, description, url, source, date_detected, category, risk_level)
+        VALUES {values_str}
+        """
+        subprocess.run(["team-db", insert_query])
+    
+    print(f"Done saving {len(new_scams)} scams.")
 
-    print(f"Done. Successfully saved {success_count} new scams via API.")
-
-if __name__ == "__main__":
+def run_once():
     all_scams = []
     
     sources = [
@@ -129,10 +153,39 @@ if __name__ == "__main__":
         ("https://www.bleepingcomputer.com/feed/", "BleepingComputer", ["scam", "phishing", "fraud"]),
         ("https://www.ic3.gov/PSA/RSS", "IC3 Public Service Announcements", None),
         ("https://www.ic3.gov/CSA/RSS", "IC3 Cyber Service Announcements", None),
+        ("https://www.ftc.gov/feeds/press-release-consumer-protection.xml", "FTC Consumer Protection Press Releases", None),
+        ("https://consumer.ftc.gov/blog/gd-rss.xml", "FTC Consumer Blog", None),
+        ("https://www.consumer.ftc.gov/feed", "FTC Consumer Alerts (Legacy)", ["scam", "fraud", "phishing"]),
     ]
     
     for url, name, filter_kws in sources:
         all_scams.extend(fetch_rss_source(url, name, filter_kws))
     
     save_to_db(all_scams)
-    print("Pipeline execution complete.")
+
+def signal_handler(sig, frame):
+    print('\nScraper stopping gracefully...')
+    sys.exit(0)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='ScamWatch Detection Pipeline')
+    parser.add_argument('--loop', action='store_true', help='Run in a continuous loop')
+    parser.add_argument('--interval', type=int, default=3600, help='Loop interval in seconds (default: 3600)')
+    args = parser.parse_args()
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    if args.loop:
+        print(f"Starting scraper in loop mode (interval: {args.interval}s)...")
+        while True:
+            try:
+                run_once()
+                print(f"Sleeping for {args.interval}s...")
+                time.sleep(args.interval)
+            except Exception as e:
+                print(f"Error in loop: {e}")
+                time.sleep(60) # Wait a bit before retrying on error
+    else:
+        run_once()
+        print("Pipeline execution complete.")
