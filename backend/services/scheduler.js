@@ -1,15 +1,15 @@
+const cron = require('node-cron');
 const { spawn } = require('child_process');
 const path = require('path');
 
-const SCRAPER_PATH = path.join(__dirname, 'scraper', 'scraper.py');
+const SCRAPER_PATH = path.join(__dirname, '../../scraper/scraper.py');
 
 function runScraper() {
     console.log(`[${new Date().toISOString()}] Starting scheduled scraper run...`);
-    
     const pythonProcess = spawn('python3', [SCRAPER_PATH]);
 
     pythonProcess.stdout.on('data', (data) => {
-        console.log(`Scraper STDOUT: ${data}`);
+        // console.log(`Scraper STDOUT: ${data}`);
     });
 
     pythonProcess.stderr.on('data', (data) => {
@@ -21,11 +21,16 @@ function runScraper() {
     });
 }
 
-// Run every hour
-const INTERVAL = 60 * 60 * 1000;
+function init() {
+    // Run immediately on startup
+    runScraper();
 
-console.log('Scheduler started. Scraper will run every hour.');
-// Initial run
-runScraper();
+    // Schedule to run every hour
+    cron.schedule('0 * * * *', () => {
+        runScraper();
+    });
 
-setInterval(runScraper, INTERVAL);
+    console.log('Scraper scheduler initialized (running every hour)');
+}
+
+module.exports = { init };

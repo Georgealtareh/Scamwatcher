@@ -4,10 +4,14 @@ const { body, param, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 const db = require('./db');
-const alerts = require('./alerts');
+const alerts = require('./services/alerts');
+const scheduler = require('./services/scheduler');
 
 const app = express();
 const port = process.env.PORT || 3001;
+
+// Initialize scheduler
+scheduler.init();
 
 // Rate limiting
 const limiter = rateLimit({

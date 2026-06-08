@@ -1,5 +1,5 @@
 const nodemailer = require('nodemailer');
-const db = require('./db');
+const db = require('../db');
 const fs = require('fs');
 const path = require('path');
 
