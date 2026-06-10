@@ -8,7 +8,24 @@ import Premium from './components/Premium';
 import Checkout from './components/Checkout';
 import Dashboard from './components/Dashboard';
 
-const API_BASE = 'http://' + window.location.hostname + ':3001/api';
+const getApiBase = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  
+  // Handle e2b sandbox preview URLs (e.g. 3000-sandbox-id.e2b.local)
+  if (hostname.startsWith('3000-')) {
+    return `${protocol}//${hostname.replace('3000-', '3001-')}/api`;
+  }
+  
+  // Default for local development or same-host deployment
+  return `${protocol}//${hostname}:3001/api`;
+};
+
+const API_BASE = getApiBase();
 
 function App() {
   const [user, setUser] = useState(null);
