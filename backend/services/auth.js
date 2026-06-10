@@ -7,7 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'scamwatch-super-secret-key';
 
 async function signup(email, password, fullName) {
     // Check if user already exists
-    const existingUser = db.query(`SELECT * FROM users WHERE email = '${db.escape(email)}'`);
+    const existingUser = await db.query(`SELECT * FROM users WHERE email = '${db.escape(email)}'`);
     if (existingUser.length > 0) {
         throw new Error('User already exists');
     }
@@ -20,7 +20,7 @@ async function signup(email, password, fullName) {
     // Insert user
     const sql = `INSERT INTO users (id, email, full_name, password_hash, is_premium) 
                  VALUES ('${id}', '${db.escape(email)}', '${db.escape(fullName)}', '${passwordHash}', 0)`;
-    db.query(sql);
+    await db.query(sql);
 
     // Create token
     const token = jwt.sign({ id, email }, JWT_SECRET, { expiresIn: '24h' });
@@ -32,7 +32,7 @@ async function signup(email, password, fullName) {
 }
 
 async function login(email, password) {
-    const users = db.query(`SELECT * FROM users WHERE email = '${db.escape(email)}'`);
+    const users = await db.query(`SELECT * FROM users WHERE email = '${db.escape(email)}'`);
     if (users.length === 0) {
         throw new Error('Invalid credentials');
     }

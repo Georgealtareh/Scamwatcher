@@ -62,12 +62,12 @@ app.post('/api/auth/login', [
     }
 });
 
-app.get('/api/auth/me', auth.verifyToken, (req, res) => {
+app.get('/api/auth/me', auth.verifyToken, async (req, res) => {
     try {
-        const user = db.query(`SELECT id, email, full_name as fullName, is_premium, phone, alert_frequency, alert_categories FROM users WHERE id = '${req.user.id}'`);
+        const user = await db.query(`SELECT id, email, full_name as fullName, is_premium, phone, alert_frequency, alert_categories FROM users WHERE id = '${req.user.id}'`);
         if (user.length === 0) return res.status(404).json({ error: 'User not found' });
         
-        const subscriptions = db.query(`SELECT scam_type FROM alert_subscriptions WHERE user_id = '${req.user.id}'`);
+        const subscriptions = await db.query(`SELECT scam_type FROM alert_subscriptions WHERE user_id = '${req.user.id}'`);
         const userData = user[0];
         userData.subscriptions = subscriptions.map(s => s.scam_type);
         
@@ -83,7 +83,7 @@ app.put('/api/user/preferences', auth.verifyToken, [
     body('alertFrequency').optional().isIn(['immediate', 'daily', 'weekly']),
     body('subscriptions').optional().isArray(),
     validate
-], (req, res) => {
+], async (req, res) => {
     const { fullName, phone, alertFrequency, subscriptions } = req.body;
     try {
         if (fullName !== undefined || phone !== undefined || alertFrequency !== undefined) {
@@ -93,15 +93,15 @@ app.put('/api/user/preferences', auth.verifyToken, [
             if (alertFrequency !== undefined) updates.push(`alert_frequency = '${db.escape(alertFrequency)}'`);
             
             if (updates.length > 0) {
-                db.query(`UPDATE users SET ${updates.join(', ')} WHERE id = '${req.user.id}'`);
+                await db.query(`UPDATE users SET ${updates.join(', ')} WHERE id = '${req.user.id}'`);
             }
         }
 
         if (subscriptions !== undefined) {
             // Clear existing subscriptions and add new ones
-            db.query(`DELETE FROM alert_subscriptions WHERE user_id = '${req.user.id}'`);
+            await db.query(`DELETE FROM alert_subscriptions WHERE user_id = '${req.user.id}'`);
             for (const type of subscriptions) {
-                db.query(`INSERT INTO alert_subscriptions (id, user_id, scam_type) VALUES ('${crypto.randomUUID()}', '${req.user.id}', '${db.escape(type)}')`);
+                await db.query(`INSERT INTO alert_subscriptions (id, user_id, scam_type) VALUES ('${crypto.randomUUID()}', '${req.user.id}', '${db.escape(type)}')`);
             }
         }
 
@@ -112,11 +112,11 @@ app.put('/api/user/preferences', auth.verifyToken, [
     }
 });
 
-app.put('/api/user/premium', auth.verifyToken, (req, res) => {
+app.put('/api/user/premium', auth.verifyToken, async (req, res) => {
     const { isPremium } = req.body;
     try {
         const value = isPremium ? 1 : 0;
-        db.query(`UPDATE users SET is_premium = ${value} WHERE id = '${req.user.id}'`);
+        await db.query(`UPDATE users SET is_premium = ${value} WHERE id = '${req.user.id}'`);
         res.json({ message: `Premium status updated to ${isPremium}`, is_premium: value });
     } catch (error) {
         res.status(500).json({ error: 'Internal Server Error' });
@@ -133,9 +133,9 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
-app.get('/api/scams', (req, res) => {
+app.get('/api/scams', async (req, res) => {
     try {
-        const scams = db.query("SELECT * FROM scams WHERE status = 'active' ORDER BY date_detected DESC");
+        const scams = await db.query("SELECT * FROM scams WHERE status = 'active' ORDER BY date_detected DESC");
         res.json(scams);
     } catch (error) {
         console.error('API Error:', error.message);
@@ -146,10 +146,10 @@ app.get('/api/scams', (req, res) => {
 app.get('/api/scams/:id', [
     param('id').isString().trim().notEmpty(),
     validate
-], (req, res) => {
+], async (req, res) => {
     try {
         const id = db.escape(req.params.id);
-        const scam = db.query(`SELECT * FROM scams WHERE id = '${id}'`);
+        const scam = await db.query(`SELECT * FROM scams WHERE id = '${id}'`);
         if (scam.length === 0) {
             return res.status(404).json({ error: 'Scam not found' });
         }
@@ -169,7 +169,7 @@ app.post('/api/scams', [
     body('category').optional().isString().trim(),
     body('url').optional().isURL(),
     validate
-], (req, res) => {
+], async (req, res) => {
     const { id, title, description, source, risk_level, category, url } = req.body;
     try {
         const sql = `INSERT INTO scams (id, title, description, source, risk_level, category, url) 
@@ -182,7 +182,7 @@ app.post('/api/scams', [
                     '${db.escape(category)}', 
                     '${db.escape(url)}'
                   )`;
-        db.query(sql);
+        await db.query(sql);
         // Process alerts asynchronously
         alerts.processAlerts({ id, title, description, source, risk_level, category, url }).catch(err => {
             console.error('Error processing alerts:', err);
@@ -197,15 +197,9 @@ app.post('/api/scams', [
     }
 });
 
-// Global Error Handler
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
-});
-
-app.get('/api/user/alerts', auth.verifyToken, (req, res) => {
+app.get('/api/user/alerts', auth.verifyToken, async (req, res) => {
     try {
-        const history = db.query(`
+        const history = await db.query(`
             SELECT h.id, h.sent_at, h.channel, s.title as scamTitle, s.risk_level as riskLevel
             FROM alert_history h
             JOIN scams s ON h.scam_id = s.id
@@ -218,6 +212,12 @@ app.get('/api/user/alerts', auth.verifyToken, (req, res) => {
         console.error('Fetch alerts history error:', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
 });
 
 app.listen(port, '0.0.0.0', () => {

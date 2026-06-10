@@ -137,8 +137,12 @@ def run_once():
         ("https://www.ftc.gov/feeds/press-release-consumer-protection.xml", "FTC Consumer Protection Press Releases", None),
         ("https://consumer.ftc.gov/blog/gd-rss.xml", "FTC Consumer Blog", None),
         ("https://www.europol.europa.eu/cms/api/rss/news", "Europol Newsroom", ["scam", "fraud", "cyber", "ransomware", "phishing"]),
+        ("https://www.europol.europa.eu/cms/api/rss/news?f%5B0%5D=crime_area:40", "Europol EC3", ["scam", "fraud", "cyber", "ransomware", "phishing"]),
         ("https://www.fca.org.uk/news/rss.xml", "FCA UK News", ["scam", "fraud", "unauthorised", "clone"]),
         ("https://www.scamwatch.gov.au/rss/news-feed.xml", "Scamwatch Australia", None),
+        ("https://news.google.com/rss/search?q=Action+Fraud+UK+scam&hl=en-GB&gl=GB&ceid=GB:en", "Action Fraud UK (via Google News)", None),
+        ("https://krebsonsecurity.com/feed/", "Krebs on Security", ["scam", "fraud", "phishing"]),
+        ("https://www.malwarebytes.com/blog/feed", "Malwarebytes Blog", ["scam", "phishing", "fraud"]),
     ]
     
     for url, name, filter_kws in sources:

@@ -2,6 +2,7 @@ const nodemailer = require('nodemailer');
 const db = require('../db');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // Mock transporter for development
 const transporter = nodemailer.createTransport({
@@ -16,16 +17,16 @@ const transporter = nodemailer.createTransport({
 const EMAIL_TEMPLATE_PATH = '/home/team/shared/design/premium/email-template.html';
 const SMS_TEMPLATE_PATH = '/home/team/shared/design/premium/sms-template.txt';
 
-const crypto = require('crypto');
-
 async function sendEmailAlert(user, scam) {
     let html = '';
     try {
-        html = fs.readFileSync(EMAIL_TEMPLATE_PATH, 'utf8');
-        // Simple replacement
-        html = html.replace(/"Microsoft Support" AI Voice Cloning Scam/g, scam.title);
-        html = html.replace(/Scammers are using AI to mimic Microsoft support representatives. They call claiming your "security license has expired" and request remote access to your computer./g, scam.description);
-        // In a real app, we'd use a templating engine like Handlebars or EJS
+        if (fs.existsSync(EMAIL_TEMPLATE_PATH)) {
+            html = fs.readFileSync(EMAIL_TEMPLATE_PATH, 'utf8');
+            html = html.replace(/"Microsoft Support" AI Voice Cloning Scam/g, scam.title);
+            html = html.replace(/Scammers are using AI to mimic Microsoft support representatives. They call claiming your "security license has expired" and request remote access to your computer./g, scam.description);
+        } else {
+            html = `<p>High Risk Scam Detected: ${scam.title}</p><p>${scam.description}</p>`;
+        }
     } catch (e) {
         console.error('Error reading email template:', e);
         html = `<p>High Risk Scam Detected: ${scam.title}</p><p>${scam.description}</p>`;
@@ -44,7 +45,7 @@ async function sendEmailAlert(user, scam) {
         console.log(`[MOCK] Email sent to ${user.email} for scam: ${scam.title}`);
         
         // Record in history
-        db.query(`INSERT INTO alert_history (id, user_id, scam_id, channel) VALUES ('${crypto.randomUUID()}', '${user.id}', '${scam.id}', 'email')`);
+        await db.query(`INSERT INTO alert_history (id, user_id, scam_id, channel) VALUES ('${crypto.randomUUID()}', '${user.id}', '${scam.id}', 'email')`);
     } catch (error) {
         console.error('Error sending email alert:', error);
     }
@@ -55,8 +56,12 @@ async function sendSMSAlert(user, scam) {
 
     let body = '';
     try {
-        body = fs.readFileSync(SMS_TEMPLATE_PATH, 'utf8');
-        body = body.replace(/New IRS Refund scam detected./g, `${scam.title} detected.`);
+        if (fs.existsSync(SMS_TEMPLATE_PATH)) {
+            body = fs.readFileSync(SMS_TEMPLATE_PATH, 'utf8');
+            body = body.replace(/New IRS Refund scam detected./g, `${scam.title} detected.`);
+        } else {
+            body = `[SCAMWATCH ALERT] High Risk: ${scam.title} detected. More details on our dashboard.`;
+        }
     } catch (e) {
         body = `[SCAMWATCH ALERT] High Risk: ${scam.title} detected. More details on our dashboard.`;
     }
@@ -65,7 +70,7 @@ async function sendSMSAlert(user, scam) {
         console.log(`[MOCK] SMS sent to ${user.phone}: ${body}`);
         
         // Record in history
-        db.query(`INSERT INTO alert_history (id, user_id, scam_id, channel) VALUES ('${crypto.randomUUID()}', '${user.id}', '${scam.id}', 'sms')`);
+        await db.query(`INSERT INTO alert_history (id, user_id, scam_id, channel) VALUES ('${crypto.randomUUID()}', '${user.id}', '${scam.id}', 'sms')`);
     } catch (error) {
         console.error('Error sending SMS alert:', error);
     }
@@ -78,11 +83,11 @@ async function processAlerts(scam) {
 
     try {
         // Find all premium users
-        const users = db.query("SELECT * FROM users WHERE is_premium = 1");
+        const users = await db.query("SELECT * FROM users WHERE is_premium = 1");
         
         for (const user of users) {
             // Check if user is subscribed to this scam type or has no preference (all)
-            const subs = db.query(`SELECT * FROM alert_subscriptions WHERE user_id = '${user.id}'`);
+            const subs = await db.query(`SELECT * FROM alert_subscriptions WHERE user_id = '${user.id}'`);
             const isSubscribed = subs.length === 0 || subs.some(s => s.scam_type === scam.category || s.scam_type === 'all');
 
             if (isSubscribed) {
