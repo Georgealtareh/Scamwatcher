@@ -25,13 +25,14 @@ def classify_scam(title, description):
     
     # Category mapping
     keywords = {
-        "Phishing": ["phishing", "email", "link", "credential", "login", "spoof", "hijack", "access token"],
-        "Investment": ["crypto", "investment", "bitcoin", "trading", "profit", "return", "ponzi", "kiosk"],
-        "Impersonation": ["call", "phone", "support", "impersonating", "spoofing", "personnel", "agency", "official"],
-        "Refund Scam": ["refund", "gift card", "overpayment", "payment"],
+        "Phishing": ["phishing", "email", "link", "credential", "login", "spoof", "hijack", "access token", "sms", "text message"],
+        "Investment": ["crypto", "investment", "bitcoin", "trading", "profit", "return", "ponzi", "kiosk", "stock", "forex"],
+        "Impersonation": ["call", "phone", "support", "impersonating", "spoofing", "personnel", "agency", "official", "government", "police", "family", "friend"],
+        "Refund Scam": ["refund", "gift card", "overpayment", "payment", "invoice", "bill"],
         "Ransomware": ["ransomware", "ransom", "encrypt", "extortion"],
-        "Healthcare": ["hospice", "medicare", "health", "medical"],
-        "Employment": ["job", "hiring", "work from home", "recruitment"]
+        "Healthcare": ["hospice", "medicare", "health", "medical", "insurance"],
+        "Employment": ["job", "hiring", "work from home", "recruitment", "internship", "salary"],
+        "Relationship": ["romance", "dating", "relationship", "lover", "bumble", "tinder"]
     }
     
     for cat, kws in keywords.items():
@@ -40,7 +41,7 @@ def classify_scam(title, description):
             break
             
     risk_level = "Medium"
-    high_risk_keywords = ["urgent", "money", "loss", "bank", "critical", "immediate", "vip", "targets", "World Cup", "FIFA"]
+    high_risk_keywords = ["urgent", "money", "loss", "bank", "critical", "immediate", "vip", "targets", "World Cup", "FIFA", "unauthorised", "access", "compromised"]
     if any(kw.lower() in text for kw in high_risk_keywords):
         risk_level = "High"
     
@@ -137,6 +138,7 @@ def run_once():
         ("https://consumer.ftc.gov/blog/gd-rss.xml", "FTC Consumer Blog", None),
         ("https://www.europol.europa.eu/cms/api/rss/news", "Europol Newsroom", ["scam", "fraud", "cyber", "ransomware", "phishing"]),
         ("https://www.fca.org.uk/news/rss.xml", "FCA UK News", ["scam", "fraud", "unauthorised", "clone"]),
+        ("https://www.scamwatch.gov.au/rss/news-feed.xml", "Scamwatch Australia", None),
     ]
     
     for url, name, filter_kws in sources:

@@ -16,6 +16,8 @@ const transporter = nodemailer.createTransport({
 const EMAIL_TEMPLATE_PATH = '/home/team/shared/design/premium/email-template.html';
 const SMS_TEMPLATE_PATH = '/home/team/shared/design/premium/sms-template.txt';
 
+const crypto = require('crypto');
+
 async function sendEmailAlert(user, scam) {
     let html = '';
     try {
@@ -40,6 +42,9 @@ async function sendEmailAlert(user, scam) {
         // console.log(`Sending email to ${user.email}...`);
         // await transporter.sendMail(mailOptions);
         console.log(`[MOCK] Email sent to ${user.email} for scam: ${scam.title}`);
+        
+        // Record in history
+        db.query(`INSERT INTO alert_history (id, user_id, scam_id, channel) VALUES ('${crypto.randomUUID()}', '${user.id}', '${scam.id}', 'email')`);
     } catch (error) {
         console.error('Error sending email alert:', error);
     }
@@ -58,6 +63,9 @@ async function sendSMSAlert(user, scam) {
 
     try {
         console.log(`[MOCK] SMS sent to ${user.phone}: ${body}`);
+        
+        // Record in history
+        db.query(`INSERT INTO alert_history (id, user_id, scam_id, channel) VALUES ('${crypto.randomUUID()}', '${user.id}', '${scam.id}', 'sms')`);
     } catch (error) {
         console.error('Error sending SMS alert:', error);
     }

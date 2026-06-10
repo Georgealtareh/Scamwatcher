@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const { body, param, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
@@ -63,10 +64,50 @@ app.post('/api/auth/login', [
 
 app.get('/api/auth/me', auth.verifyToken, (req, res) => {
     try {
-        const user = db.query(`SELECT id, email, full_name as fullName, is_premium FROM users WHERE id = '${req.user.id}'`);
+        const user = db.query(`SELECT id, email, full_name as fullName, is_premium, phone, alert_frequency, alert_categories FROM users WHERE id = '${req.user.id}'`);
         if (user.length === 0) return res.status(404).json({ error: 'User not found' });
-        res.json(user[0]);
+        
+        const subscriptions = db.query(`SELECT scam_type FROM alert_subscriptions WHERE user_id = '${req.user.id}'`);
+        const userData = user[0];
+        userData.subscriptions = subscriptions.map(s => s.scam_type);
+        
+        res.json(userData);
     } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+app.put('/api/user/preferences', auth.verifyToken, [
+    body('fullName').optional().isString().trim(),
+    body('phone').optional().isString().trim(),
+    body('alertFrequency').optional().isIn(['immediate', 'daily', 'weekly']),
+    body('subscriptions').optional().isArray(),
+    validate
+], (req, res) => {
+    const { fullName, phone, alertFrequency, subscriptions } = req.body;
+    try {
+        if (fullName !== undefined || phone !== undefined || alertFrequency !== undefined) {
+            let updates = [];
+            if (fullName !== undefined) updates.push(`full_name = '${db.escape(fullName)}'`);
+            if (phone !== undefined) updates.push(`phone = '${db.escape(phone)}'`);
+            if (alertFrequency !== undefined) updates.push(`alert_frequency = '${db.escape(alertFrequency)}'`);
+            
+            if (updates.length > 0) {
+                db.query(`UPDATE users SET ${updates.join(', ')} WHERE id = '${req.user.id}'`);
+            }
+        }
+
+        if (subscriptions !== undefined) {
+            // Clear existing subscriptions and add new ones
+            db.query(`DELETE FROM alert_subscriptions WHERE user_id = '${req.user.id}'`);
+            for (const type of subscriptions) {
+                db.query(`INSERT INTO alert_subscriptions (id, user_id, scam_type) VALUES ('${crypto.randomUUID()}', '${req.user.id}', '${db.escape(type)}')`);
+            }
+        }
+
+        res.json({ message: 'Preferences updated successfully' });
+    } catch (error) {
+        console.error('Update preferences error:', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -160,6 +201,23 @@ app.post('/api/scams', [
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Something went wrong!' });
+});
+
+app.get('/api/user/alerts', auth.verifyToken, (req, res) => {
+    try {
+        const history = db.query(`
+            SELECT h.id, h.sent_at, h.channel, s.title as scamTitle, s.risk_level as riskLevel
+            FROM alert_history h
+            JOIN scams s ON h.scam_id = s.id
+            WHERE h.user_id = '${req.user.id}'
+            ORDER BY h.sent_at DESC
+            LIMIT 50
+        `);
+        res.json(history);
+    } catch (error) {
+        console.error('Fetch alerts history error:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
 });
 
 app.listen(port, '0.0.0.0', () => {
